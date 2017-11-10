@@ -265,14 +265,25 @@ module Docker::Util
   def remove_ignored_files!(directory, files)
     ignore = File.join(directory, '.dockerignore')
     return unless files.include?(ignore)
-    ignored_files(directory, ignore).each { |f| files.delete(f) }
+
+    formatted = File.read(ignore).split("\n").each(&:strip!)
+    negations, ignores = formatted.partition { |p| p.start_with?('!') }
+
+    ignored_files = find_ignored_files(directory, ignores)
+    remove_negations(ignored_files, directory, negations).each { |f| files.delete(f) }
   end
 
-  def ignored_files(directory, ignore_file)
-    patterns = File.read(ignore_file).split("\n").each(&:strip!)
-    patterns.reject! { |p| p.empty? || p.start_with?('#') }
-    patterns.map! { |p| File.join(directory, p) }
-    patterns.map! { |p| File.directory?(p) ? "#{p}/**/*" : p }
-    patterns.flat_map { |p| p =~ GLOB_WILDCARDS ? glob_all_files(p) : p }
+  def find_ignored_files(directory, ignores)
+    ignores = ignores.reject { |p| p.empty? || p.start_with?('#') }
+    ignores = ignores.map { |p| File.join(directory, p) }
+    ignores = ignores.map { |p| File.directory?(p) ? "#{p}/**/*" : p }
+    ignores.flat_map { |p| p =~ GLOB_WILDCARDS ? glob_all_files(p) : p }
+  end
+
+  def remove_negations(files, directory, negations)
+    ignorables = negations.map { |i| i.gsub('!', '') }
+    ignorables = ignorables.reject { |i| i.empty? }
+    ignorables = ignorables.map { |i| File.join(directory, i) }
+    files.reject { |file| file.in?(ignorables) }
   end
 end
